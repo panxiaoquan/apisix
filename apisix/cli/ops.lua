@@ -562,6 +562,13 @@ Please modify "admin_key" in conf/config.yaml .
         proxy_mirror_timeouts = yaml_conf.plugin_attr["proxy-mirror"].timeout
     end
 
+    local proxy_mirror_enhanced_timeouts
+    if yaml_conf.plugin_attr["proxy-mirror-enhanced"] then
+        proxy_mirror_enhanced_timeouts = yaml_conf.plugin_attr["proxy-mirror-enhanced"].timeout
+    else
+        proxy_mirror_enhanced_timeouts = proxy_mirror_timeouts
+    end
+
     if yaml_conf.deployment and yaml_conf.deployment.role then
         local role = yaml_conf.deployment.role
         env.deployment_role = role
@@ -598,6 +605,7 @@ Please modify "admin_key" in conf/config.yaml .
         control_server_addr = control_server_addr,
         prometheus_server_addr = prometheus_server_addr,
         proxy_mirror_timeouts = proxy_mirror_timeouts,
+        proxy_mirror_enhanced_timeouts = proxy_mirror_enhanced_timeouts,
         zipkin_set_ngx_var = zipkin_set_ngx_var
     }
 

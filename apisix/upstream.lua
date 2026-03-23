@@ -160,6 +160,115 @@ local function fill_node_info(up_conf, scheme, is_stream)
 end
 
 
+local function update_upstream_nodes(up_conf, new_nodes, track_resource)
+    local same = upstream_util.compare_upstream_node(up_conf, new_nodes)
+    if not same then
+        if track_resource and up_conf.resource_key then
+            local nodes_ver = resource.get_nodes_ver(up_conf.resource_key)
+            if not nodes_ver then
+                nodes_ver = 0
+            end
+            nodes_ver = nodes_ver + 1
+            up_conf._nodes_ver = nodes_ver
+            resource.set_nodes_ver_and_nodes(up_conf.resource_key, nodes_ver, new_nodes)
+        else
+            up_conf._nodes_ver = (up_conf._nodes_ver or 0) + 1
+        end
+
+        local pass, err = core.schema.check(core.schema.discovery_nodes, new_nodes)
+        if not pass then
+            return HTTP_CODE_UPSTREAM_UNAVAILABLE, "invalid nodes format: " .. err
+        end
+    end
+
+    up_conf.nodes = new_nodes
+    return nil, nil, same
+end
+
+
+local function resolve_discovery_nodes(up_conf, track_resource)
+    if not up_conf.service_name then
+        return
+    end
+
+    if not discovery then
+        return 503, "discovery is uninitialized"
+    end
+    if not up_conf.discovery_type then
+        return 503, "discovery server need appoint"
+    end
+
+    local dis = discovery[up_conf.discovery_type]
+    if not dis then
+        local err = "discovery " .. up_conf.discovery_type .. " is uninitialized"
+        return 503, err
+    end
+
+    local new_nodes, err = dis.nodes(up_conf.service_name, up_conf.discovery_args)
+    if not new_nodes then
+        return HTTP_CODE_UPSTREAM_UNAVAILABLE, "no valid upstream node: " .. (err or "nil")
+    end
+
+    local code, resolve_err, same = update_upstream_nodes(up_conf, new_nodes, track_resource)
+    if code then
+        return code, resolve_err
+    end
+
+    if not same then
+        core.log.info("discover new upstream from ", up_conf.service_name, ", type ",
+                      up_conf.discovery_type, ": ",
+                      core.json.delay_encode(up_conf, true))
+    end
+end
+
+
+local function prepare_transient_upstream(api_ctx, up_conf, conf_id, conf_version)
+    local code, err = resolve_discovery_nodes(up_conf, false)
+    if code then
+        return code, err
+    end
+
+    if up_conf.dns_nodes then
+        local new_nodes, dns_err = upstream_util.parse_domain_for_nodes(up_conf.dns_nodes)
+        if not new_nodes then
+            return HTTP_CODE_UPSTREAM_UNAVAILABLE, "failed to parse upstream domain: " .. dns_err
+        end
+
+        local code, err = update_upstream_nodes(up_conf, new_nodes, false)
+        if code then
+            return code, err
+        end
+    end
+
+    conf_id = conf_id or "inline_upstream"
+    conf_version = conf_version or 0
+    set_directly(api_ctx, conf_id, tostring(conf_version) .. "#" .. tostring(up_conf) .. "#"
+                                .. tostring(up_conf._nodes_ver or ''), up_conf)
+
+    local nodes_count = up_conf.nodes and #up_conf.nodes or 0
+    if nodes_count == 0 then
+        return HTTP_CODE_UPSTREAM_UNAVAILABLE, "no valid upstream node"
+    end
+
+    if not is_http then
+        local ok, fill_err = fill_node_info(up_conf, nil, true)
+        if not ok then
+            return 503, fill_err
+        end
+        return
+    end
+
+    set_upstream_scheme(api_ctx, up_conf)
+
+    local ok, fill_err = fill_node_info(up_conf, api_ctx.upstream_scheme, false)
+    if not ok then
+        return 503, fill_err
+    end
+
+    return
+end
+
+
 function _M.set_by_route(route, api_ctx)
     if api_ctx.upstream_conf then
         -- upstream_conf has been set by traffic-split plugin
@@ -172,49 +281,9 @@ function _M.set_by_route(route, api_ctx)
     end
     -- core.log.info("up_conf: ", core.json.delay_encode(up_conf, true))
 
-    if up_conf.service_name then
-        if not discovery then
-            return 503, "discovery is uninitialized"
-        end
-        if not up_conf.discovery_type then
-            return 503, "discovery server need appoint"
-        end
-
-        local dis = discovery[up_conf.discovery_type]
-        if not dis then
-            local err = "discovery " .. up_conf.discovery_type .. " is uninitialized"
-            return 503, err
-        end
-
-        local new_nodes, err = dis.nodes(up_conf.service_name, up_conf.discovery_args)
-        if not new_nodes then
-            return HTTP_CODE_UPSTREAM_UNAVAILABLE, "no valid upstream node: " .. (err or "nil")
-        end
-
-        local same = upstream_util.compare_upstream_node(up_conf, new_nodes)
-        if not same then
-            local nodes_ver = resource.get_nodes_ver(up_conf.resource_key)
-            if not nodes_ver then
-                nodes_ver = 0
-            end
-            nodes_ver = nodes_ver + 1
-            up_conf._nodes_ver = nodes_ver
-            resource.set_nodes_ver_and_nodes(up_conf.resource_key, nodes_ver, new_nodes)
-            local pass, err = core.schema.check(core.schema.discovery_nodes, new_nodes)
-            if not pass then
-                return HTTP_CODE_UPSTREAM_UNAVAILABLE, "invalid nodes format: " .. err
-            end
-
-            core.log.info("discover new upstream from ", up_conf.service_name, ", type ",
-                          up_conf.discovery_type, ": ",
-                          core.json.delay_encode(up_conf, true))
-        end
-
-        -- in case the value of new_nodes is the same as the old one,
-        -- but discovery lib return a new table for it.
-        -- for example, when watch loop of kubernetes discovery is broken or done,
-        -- it will fetch full data again and return a new table for every services.
-        up_conf.nodes = new_nodes
+    local code, err = resolve_discovery_nodes(up_conf, true)
+    if code then
+        return code, err
     end
 
     local id = up_conf.resource_id
@@ -302,6 +371,11 @@ function _M.set_by_route(route, api_ctx)
     end
 
     return
+end
+
+
+function _M.set_by_upstream_conf(up_conf, api_ctx, conf_id, conf_version)
+    return prepare_transient_upstream(api_ctx, up_conf, conf_id, conf_version)
 end
 
 

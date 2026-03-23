@@ -515,6 +515,7 @@ plugins:                           # plugin list (sorted by priority)
   - ai-proxy                       # priority: 1040
   - ai-rate-limiting               # priority: 1030
   - proxy-mirror                   # priority: 1010
+  - proxy-mirror-enhanced          # priority: 1009
   - proxy-rewrite                  # priority: 1008
   - workflow                       # priority: 1006
   - api-breaker                    # priority: 1005
@@ -661,6 +662,11 @@ plugin_attr:          # Plugin attributes
                                       # a single network connection between the Dubbo Proxy and the upstream
                                       # Dubbo services.
   proxy-mirror:                       # Plugin: proxy-mirror
+    timeout:                          # Set the timeout for mirrored requests.
+      connect: 60s
+      read: 60s
+      send: 60s
+  proxy-mirror-enhanced:              # Plugin: proxy-mirror-enhanced
     timeout:                          # Set the timeout for mirrored requests.
       connect: 60s
       read: 60s

@@ -783,6 +783,11 @@ http {
         location / {
             set $upstream_mirror_host        '';
             set $upstream_mirror_uri         '';
+            set $upstream_mirror_enhanced_host '';
+            set $upstream_mirror_enhanced_standard_uri '';
+            set $upstream_mirror_enhanced_uri '';
+            set $upstream_mirror_body        '';
+            set $upstream_mirror_content_type '';
             set $upstream_upgrade            '';
             set $upstream_connection         '';
 
@@ -868,8 +873,14 @@ http {
 
             proxy_pass      $upstream_scheme://apisix_backend$upstream_uri;
 
-            {% if enabled_plugins["proxy-mirror"] then %}
+            {% if enabled_plugins["proxy-mirror"] or enabled_plugins["proxy-mirror-enhanced"] then %}
             mirror          /proxy_mirror;
+            {% end %}
+            {% if enabled_plugins["proxy-mirror-enhanced"] then %}
+            mirror          /proxy_mirror_enhanced_standard;
+            {% end %}
+            {% if enabled_plugins["proxy-mirror-enhanced"] then %}
+            mirror          /proxy_mirror_enhanced;
             {% end %}
 
             header_filter_by_lua_block {
@@ -904,7 +915,7 @@ http {
             grpc_socket_keepalive on;
             grpc_pass         $upstream_scheme://apisix_backend;
 
-            {% if enabled_plugins["proxy-mirror"] then %}
+            {% if enabled_plugins["proxy-mirror"] or enabled_plugins["proxy-mirror-enhanced"] then %}
             mirror           /proxy_mirror_grpc;
             {% end %}
 
@@ -945,15 +956,13 @@ http {
         }
         {% end %}
 
-        {% if enabled_plugins["proxy-mirror"] then %}
+        {% if enabled_plugins["proxy-mirror"] or enabled_plugins["proxy-mirror-enhanced"] then %}
         location = /proxy_mirror {
             internal;
 
-            {% if not use_apisix_base then %}
             if ($upstream_mirror_uri = "") {
                 return 200;
             }
-            {% end %}
 
 
             {% if proxy_mirror_timeouts then %}
@@ -973,15 +982,73 @@ http {
         }
         {% end %}
 
-        {% if enabled_plugins["proxy-mirror"] then %}
+        {% if enabled_plugins["proxy-mirror-enhanced"] then %}
+        location = /proxy_mirror_enhanced_standard {
+            internal;
+
+            if ($upstream_mirror_enhanced_standard_uri = "") {
+                return 200;
+            }
+
+
+            {% if proxy_mirror_enhanced_timeouts then %}
+                {% if proxy_mirror_enhanced_timeouts.connect then %}
+            proxy_connect_timeout {* proxy_mirror_enhanced_timeouts.connect *};
+                {% end %}
+                {% if proxy_mirror_enhanced_timeouts.read then %}
+            proxy_read_timeout {* proxy_mirror_enhanced_timeouts.read *};
+                {% end %}
+                {% if proxy_mirror_enhanced_timeouts.send then %}
+            proxy_send_timeout {* proxy_mirror_enhanced_timeouts.send *};
+                {% end %}
+            {% end %}
+            proxy_http_version 1.1;
+            {% if http.proxy_ssl_server_name then %}
+            proxy_ssl_name $upstream_mirror_enhanced_host;
+            {% end %}
+            proxy_set_header Host $upstream_mirror_enhanced_host;
+            proxy_pass $upstream_mirror_enhanced_standard_uri;
+        }
+        {% end %}
+
+        {% if enabled_plugins["proxy-mirror-enhanced"] then %}
+        location = /proxy_mirror_enhanced {
+            internal;
+
+            if ($upstream_mirror_enhanced_uri = "") {
+                return 200;
+            }
+
+
+            {% if proxy_mirror_enhanced_timeouts then %}
+                {% if proxy_mirror_enhanced_timeouts.connect then %}
+            proxy_connect_timeout {* proxy_mirror_enhanced_timeouts.connect *};
+                {% end %}
+                {% if proxy_mirror_enhanced_timeouts.read then %}
+            proxy_read_timeout {* proxy_mirror_enhanced_timeouts.read *};
+                {% end %}
+                {% if proxy_mirror_enhanced_timeouts.send then %}
+            proxy_send_timeout {* proxy_mirror_enhanced_timeouts.send *};
+                {% end %}
+            {% end %}
+            proxy_http_version 1.1;
+            {% if http.proxy_ssl_server_name then %}
+            proxy_ssl_name $upstream_mirror_enhanced_host;
+            {% end %}
+            proxy_set_header Host $upstream_mirror_enhanced_host;
+            proxy_set_header Content-Type $upstream_mirror_content_type;
+            proxy_set_body $upstream_mirror_body;
+            proxy_pass $upstream_mirror_enhanced_uri;
+        }
+        {% end %}
+
+        {% if enabled_plugins["proxy-mirror"] or enabled_plugins["proxy-mirror-enhanced"] then %}
         location = /proxy_mirror_grpc {
             internal;
 
-            {% if not use_apisix_base then %}
             if ($upstream_mirror_uri = "") {
                 return 200;
             }
-            {% end %}
 
 
             {% if proxy_mirror_timeouts then %}

@@ -238,6 +238,7 @@ local _M = {
     "ai-aws-content-moderation",
     "ai-aliyun-content-moderation",
     "proxy-mirror",
+    "proxy-mirror-enhanced",
     "proxy-rewrite",
     "workflow",
     "api-breaker",
@@ -341,6 +342,13 @@ local _M = {
       upstream_multiplex_count = 32
     },
     ["proxy-mirror"] = {
+      timeout = {
+        connect = "60s",
+        read = "60s",
+        send = "60s"
+      }
+    },
+    ["proxy-mirror-enhanced"] = {
       timeout = {
         connect = "60s",
         read = "60s",

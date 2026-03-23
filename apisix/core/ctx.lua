@@ -246,6 +246,11 @@ do
 
         upstream_mirror_host       = true,
         upstream_mirror_uri        = true,
+        upstream_mirror_enhanced_host = true,
+        upstream_mirror_enhanced_standard_uri = true,
+        upstream_mirror_enhanced_uri = true,
+        upstream_mirror_body       = true,
+        upstream_mirror_content_type = true,
 
         upstream_cache_zone        = true,
         upstream_cache_zone_info   = true,
