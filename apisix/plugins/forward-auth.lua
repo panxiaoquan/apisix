@@ -18,6 +18,7 @@
 local ipairs   = ipairs
 local core     = require("apisix.core")
 local http     = require("resty.http")
+local consumer = require("apisix.consumer")
 local pairs    = pairs
 local type     = type
 local tostring = tostring
@@ -71,6 +72,12 @@ local schema = {
             description = "authorization response header that will be sent to"
                            .. "the client when authorizing failed"
         },
+        consumer_header = {
+            type = "string",
+            minLength = 1,
+            description = "authorization response header that contains the "
+                           .. "APISIX Consumer username to attach to the request"
+        },
         timeout = {
             type = "integer",
             minimum = 1,
@@ -102,8 +109,35 @@ function _M.check_schema(conf)
     return core.schema.check(schema, conf)
 end
 
+local function attach_consumer_by_header(conf, ctx, res)
+    if not conf.consumer_header then
+        return
+    end
 
-function _M.access(conf, ctx)
+    local consumer_name = res.headers[conf.consumer_header]
+    if type(consumer_name) == "table" then
+        consumer_name = consumer_name[1]
+    end
+
+    if not consumer_name or consumer_name == "" then
+        core.log.error("missing consumer header from auth response: ", conf.consumer_header)
+        return 403, "consumer header missing in auth response"
+    end
+
+    local auth_consumer, consumer_conf, err = consumer.get_consumer_by_name(consumer_name)
+    if not auth_consumer then
+        core.log.error("failed to fetch consumer by name from auth response header ",
+                       conf.consumer_header, ": ", err)
+        return 403, "consumer not found"
+    end
+
+    consumer.attach_consumer(ctx, auth_consumer, consumer_conf)
+end
+
+
+local function do_auth(conf, ctx)
+    ctx.forward_auth_processed = true
+
     local auth_headers = {
         ["X-Forwarded-Proto"] = core.request.get_scheme(ctx),
         ["X-Forwarded-Method"] = core.request.get_method(),
@@ -184,6 +218,11 @@ function _M.access(conf, ctx)
         return res.status, res.body
     end
 
+    local code, body = attach_consumer_by_header(conf, ctx, res)
+    if code or body then
+        return code, body
+    end
+
     -- append headers that need to be get from the auth response header
     for _, header in ipairs(conf.upstream_headers) do
         local header_value = res.headers[header]
@@ -191,6 +230,21 @@ function _M.access(conf, ctx)
             core.request.set_header(ctx, header, header_value)
         end
     end
+
+end
+
+
+function _M.rewrite(conf, ctx)
+    return do_auth(conf, ctx)
+end
+
+
+function _M.access(conf, ctx)
+    if ctx.forward_auth_processed then
+        return
+    end
+
+    return do_auth(conf, ctx)
 end
 
 

@@ -45,6 +45,7 @@ This Plugin moves the authentication and authorization logic to a dedicated exte
 | extra_headers   |object | False    |         |                | Extra headers to be sent to the authorization service passed in key-value format. The value can be a variable like `$request_uri`, `$post_arg.xyz` |
 | upstream_headers  | array[string] | False    |         |                | Authorization service response headers to be forwarded to the Upstream. If not set, no headers are forwarded to the Upstream service.                      |
 | client_headers    | array[string] | False    |         |                | Authorization service response headers to be sent to the client when authorization fails. If not set, no headers will be sent to the client.               |
+| consumer_header   | string        | False    |         |                | Authorization service response header that contains an existing APISIX Consumer username. When set and the auth response is 2xx, APISIX attaches that Consumer to the request. |
 | timeout           | integer       | False    | 3000ms  | [1, 60000]ms   | Timeout for the authorization service HTTP call.                                                                                                           |
 | keepalive         | boolean       | False    | true    |                | When set to `true`, keeps the connection alive for multiple requests.                                                                                      |
 | keepalive_timeout | integer       | False    | 60000ms | [1000, ...]ms  | Idle time after which the connection is closed.                                                                                                            |
@@ -59,6 +60,8 @@ APISIX will generate and send the request headers listed below to the authorizat
 | Scheme            | HTTP Method        | Host             | URI             | Source IP       |
 | ----------------- | ------------------ | ---------------- | --------------- | --------------- |
 | X-Forwarded-Proto | X-Forwarded-Method | X-Forwarded-Host | X-Forwarded-Uri | X-Forwarded-For |
+
+If `consumer_header` is configured and the authorization service returns a 2xx response, APISIX reads the configured response header as a Consumer username and attaches the corresponding Consumer to the current request. This allows Consumer and Consumer Group plugins to take effect for the request. If the header is missing or the Consumer does not exist in APISIX, the request is rejected with HTTP `403`.
 
 ## Example usage
 
@@ -166,6 +169,52 @@ curl -i http://127.0.0.1:9080/headers
 HTTP/1.1 403 Forbidden
 Location: http://example.com/auth
 ```
+
+### Attach an APISIX Consumer from the authorization response
+
+Create a Consumer that already exists in APISIX:
+
+```shell
+curl -X PUT 'http://127.0.0.1:9180/apisix/admin/consumers' \
+    -H "X-API-KEY: $admin_key" \
+    -d '{
+    "username": "demo-consumer",
+    "plugins": {
+        "limit-count": {
+            "count": 1,
+            "time_window": 60,
+            "rejected_code": 429,
+            "key": "remote_addr",
+            "policy": "local"
+        }
+    }
+}'
+```
+
+Have the authorization service return the Consumer username in a response header such as `X-Consumer-Username`, and configure the plugin to read it:
+
+```shell
+curl -X PUT 'http://127.0.0.1:9180/apisix/admin/routes/consumer-route' \
+    -H "X-API-KEY: $admin_key" \
+    -d '{
+    "uri": "/consumer-route",
+    "plugins": {
+        "forward-auth": {
+            "uri": "http://127.0.0.1:9080/auth",
+            "request_headers": ["Authorization"],
+            "consumer_header": "X-Consumer-Username"
+        }
+    },
+    "upstream": {
+        "nodes": {
+            "httpbin.org:80": 1
+        },
+        "type": "roundrobin"
+    }
+}'
+```
+
+With this configuration, a successful auth response like `X-Consumer-Username: demo-consumer` attaches `demo-consumer` to the request. APISIX then applies Consumer-scoped plugins, such as the `limit-count` policy above.
 
 ### Using data from POST body to make decision on Authorization service
 

@@ -44,6 +44,7 @@ description: 本文介绍了关于 Apache APISIX `forward-auth` 插件的基本�
 | extra_headers   |object | False    |         |                | 以键值格式传递给授权服务的额外标头。值可以是变量，例如“$request_uri”或“$post_arg.xyz”。 |
 | upstream_headers  | array[string] | 否    |         |                | 认证通过时，设置 `authorization` 服务转发至 `upstream` 的请求头。如果不设置则不转发任何请求头。                             |
 | client_headers    | array[string] | 否    |         |                | 认证失败时，由 `authorization` 服务向 `client` 发送的响应头。如果不设置则不转发任何响应头。                                |
+| consumer_header   | string        | 否    |         |                | 认证服务响应头中的 Consumer 用户名字段。配置后，当认证服务返回 2xx 响应时，APISIX 会用该响应头中的值绑定已存在的 APISIX Consumer。 |
 | timeout           | integer       | 否    | 3000ms  | [1, 60000]ms   | `authorization` 服务请求超时时间。                                                                                     |
 | keepalive         | boolean       | 否    | true    | [true, false]  | HTTP 长连接。                                                                                                         |
 | keepalive_timeout | integer       | 否    | 60000ms | [1000, ...]ms  | 长连接超时时间。                                                                                                      |
@@ -58,6 +59,8 @@ APISIX 将生成并发送如下所示的请求头到认证服务：
 | Scheme            | HTTP Method        | Host              | URI             | Source IP       |
 | ----------------- | ------------------ | ----------------- | --------------- | --------------- |
 | X-Forwarded-Proto | X-Forwarded-Method | X-Forwarded-Host  | X-Forwarded-Uri | X-Forwarded-For |
+
+如果配置了 `consumer_header`，并且认证服务返回了 2xx 响应，APISIX 会把该响应头的值当作 Consumer 用户名，从本地已有的 Consumer 配置中查找并绑定到当前请求。这样 Consumer 和 Consumer Group 上配置的插件也会对该请求生效。如果响应头缺失，或 APISIX 中不存在对应 Consumer，请求会被拒绝并返回 HTTP `403`。
 
 ## 使用示例
 
@@ -168,6 +171,52 @@ curl -i http://127.0.0.1:9080/headers
 HTTP/1.1 403 Forbidden
 Location: http://example.com/auth
 ```
+
+### 通过认证响应绑定 APISIX Consumer
+
+先在 APISIX 中创建一个已存在的 Consumer：
+
+```shell
+curl -X PUT 'http://127.0.0.1:9180/apisix/admin/consumers' \
+    -H "X-API-KEY: $admin_key" \
+    -d '{
+    "username": "demo-consumer",
+    "plugins": {
+        "limit-count": {
+            "count": 1,
+            "time_window": 60,
+            "rejected_code": 429,
+            "key": "remote_addr",
+            "policy": "local"
+        }
+    }
+}'
+```
+
+然后让认证服务在成功响应中返回类似 `X-Consumer-Username` 的响应头，并在插件中声明该响应头：
+
+```shell
+curl -X PUT 'http://127.0.0.1:9180/apisix/admin/routes/consumer-route' \
+    -H "X-API-KEY: $admin_key" \
+    -d '{
+    "uri": "/consumer-route",
+    "plugins": {
+        "forward-auth": {
+            "uri": "http://127.0.0.1:9080/auth",
+            "request_headers": ["Authorization"],
+            "consumer_header": "X-Consumer-Username"
+        }
+    },
+    "upstream": {
+        "nodes": {
+            "httpbin.org:80": 1
+        },
+        "type": "roundrobin"
+    }
+}'
+```
+
+在这个配置下，如果认证服务成功返回 `X-Consumer-Username: demo-consumer`，APISIX 就会把 `demo-consumer` 绑定到当前请求，并继续执行该 Consumer 上配置的插件，例如上面的 `limit-count`。
 
 ### Using data from POST body to make decision on Authorization service
 
