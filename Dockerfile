@@ -3,6 +3,7 @@ FROM ${BASE_IMAGE}
 
 # Bundle the custom plugin and the APISIX runtime changes it depends on.
 COPY apisix/plugins/proxy-mirror-enhanced.lua /usr/local/apisix/apisix/plugins/proxy-mirror-enhanced.lua
+COPY apisix/plugins/proxy-mirror.lua /usr/local/apisix/apisix/plugins/proxy-mirror.lua
 COPY apisix/plugins/forward-auth.lua /usr/local/apisix/apisix/plugins/forward-auth.lua
 COPY apisix/cli/config.lua /usr/local/apisix/apisix/cli/config.lua
 COPY apisix/cli/ngx_tpl.lua /usr/local/apisix/apisix/cli/ngx_tpl.lua

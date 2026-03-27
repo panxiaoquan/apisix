@@ -37,6 +37,16 @@ echo "passed: 'Server: APISIX' not in nginx.conf"
 
 #make init <- no need to re-run since we don't change the config yet.
 
+exit_if_not_customed_nginx
+
+count=$(grep -c '^ *lua_shared_dict upstream-healthcheck 10m;$' conf/nginx.conf || true)
+if [ "$count" -ne 2 ]; then
+    echo "failed: expected upstream-healthcheck shared dict in both lua and http sections"
+    exit 1
+fi
+
+echo "passed: found the upstream-healthcheck shared dict in both lua and http sections"
+
 # check the error_log directive uses warn level by default.
 if ! grep "error_log logs/error.log warn;" conf/nginx.conf > /dev/null; then
     echo "failed: error_log directive doesn't use warn level by default"

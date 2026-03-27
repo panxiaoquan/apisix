@@ -18,6 +18,7 @@ local core          = require("apisix.core")
 local url           = require("net.url")
 
 local math_random = math.random
+local tostring = tostring
 local has_mod, apisix_ngx_client = pcall(require, "resty.apisix.client")
 
 
@@ -44,6 +45,25 @@ local schema = {
             minimum = 0.00001,
             maximum = 1,
             default = 1,
+        },
+        header = {
+            type = "object",
+            properties = {
+                set = {
+                    type = "object",
+                    minProperties = 1,
+                    patternProperties = {
+                        ["^[^:]+$"] = {
+                            oneOf = {
+                                {type = "string"},
+                                {type = "number"},
+                            }
+                        }
+                    },
+                    additionalProperties = false,
+                },
+            },
+            additionalProperties = false,
         },
     },
     required = {"host"},
@@ -104,6 +124,12 @@ local function enable_mirror(ctx, conf)
     local _, mirror_host = resolver_host(conf.host)
     ctx.var.upstream_mirror_host = mirror_host
     ctx.var.upstream_mirror_uri = mirror_host .. uri
+
+    if conf.header and conf.header.set then
+        for k, v in pairs(conf.header.set) do
+            core.request.set_header(ctx, k, tostring(v))
+        end
+    end
 
     if has_mod then
         apisix_ngx_client.enable_mirror()
